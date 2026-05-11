@@ -30,12 +30,16 @@ COMSOL Multiphysics automation skills — programmatic simulation via Python.
 ## Repository structure
 
 ```
-skills/comsol/          # The skill
-├── SKILL.md            # Skill instructions
-├── scripts/            # Simulation scripts
-├── references/         # API reference, debugging log, examples
+skills/comsol/                  # The Claude Code skill
+├── SKILL.md                    # Skill instructions & API patterns
+├── scripts/                    # Bundled utility scripts
+└── references/                 # API reference, debugging log, examples
+examples/                       # Runnable example: laser ultrasound
+├── laser_ultrasound_model.py   # Build & solve simulation
+├── plot_results.py             # Visualize results
+└── requirements.txt            # Example dependencies
 .claude-plugin/
-└── marketplace.json    # Plugin registry manifest
+└── marketplace.json            # Plugin registry manifest
 ```
 
 ## Changelog

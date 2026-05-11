@@ -41,7 +41,11 @@ skills/comsol/SKILL.md                    # 技能入口
 skills/comsol/references/api-reference.md # API 标签字典（已验证）
 skills/comsol/references/debugging-log.md # 调试知识积累
 skills/comsol/references/laser-ultrasound.md # 激光超声示例
-skills/comsol/scripts/                    # 仿真脚本
+skills/comsol/scripts/                    # 技能绑定的工具脚本
+examples/                                 # 可运行的完整示例
+├── laser_ultrasound_model.py             # 激光超声仿真
+├── plot_results.py                       # 结果可视化
+└── requirements.txt                      # 示例依赖
 .claude-plugin/marketplace.json           # 插件市场清单
 README.md                                 # 英文说明 + 更新日志
 README_zh.md                              # 中文说明 + 更新日志

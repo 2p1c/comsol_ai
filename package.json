@@ -23,8 +23,7 @@
   "author": "2p1c",
   "files": [
     "skills/",
-    "laser_ultrasound_model.py",
-    "plot_results.py",
+    "examples/",
     "requirements.txt",
     "scripts/"
   ],
