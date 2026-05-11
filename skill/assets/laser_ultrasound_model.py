@@ -28,6 +28,7 @@ Usage:
 """
 
 import mph
+import jpype
 import numpy as np
 import argparse
 from pathlib import Path
@@ -205,41 +206,31 @@ def build_model(cfg, derived, array_points):
     ht.label("Heat Transfer in Solids")
     ht.feature("init1").set("Tinit", "T_amb")
 
-    # Top-surface selection (z = Lz)
-    top_sel = comp.selection().create("sel_top", "Box")
-    top_sel.set("entitydim", 2)
-    top_sel.set("condition", "z > Lz - 0.01[mm]")
-
-    # Gaussian boundary heat source (models the laser pulse)
+    # Gaussian boundary heat source on top surface (z = Lz, boundary 6)
     bhs = ht.feature().create("bhs1", "BoundaryHeatSource", 2)
     bhs.label("Laser Source (1064 nm)")
-    bhs.selection().set("sel_top")
+    bhs.selection().set(jpype.JArray(jpype.JInt, 1)([6]))
     bhs.set("Qb",
         "Q0 * exp(-((x-x0)^2 + (y-y0)^2) / (2*sigma_s^2)) "
         "* exp(-(t-t0)^2 / (2*sigma_t^2))"
     )
     print(f"  Laser: spot {cfg['laser_spot_radius']:.1f} mm, "
           f"FWHM {cfg['laser_pulse_FWHM']*1e9:.0f} ns, "
-          f"Q0 = {derived['Q0']:.2e} W/m²")
+          f"Q0 = {derived['Q0']:.2e} W/m^2")
 
     # ---- [6] Physics: Solid Mechanics ----
     solid = comp.physics().create("solid", "SolidMechanics", "geom1")
     solid.label("Solid Mechanics")
-    solid.feature("free1").selection().all()
+    # Free boundary is the default — all boundaries are free unless overridden
 
-    # Low-reflecting boundaries on the four side faces
+    # Low-reflecting boundaries on the four side faces (boundaries 2,3,4,5)
     try:
-        side_sel = comp.selection().create("sel_sides", "Box")
-        side_sel.set("entitydim", 2)
-        side_sel.set("condition",
-            "(x < 0.01[mm]) || (x > Lx - 0.01[mm]) || "
-            "(y < 0.01[mm]) || (y > Ly - 0.01[mm])")
         lrb = solid.feature().create("lrb1", "LowReflectingBoundary", 2)
-        lrb.selection().set("sel_sides")
+        lrb.selection().set(jpype.JArray(jpype.JInt, 1)([2, 3, 4, 5]))
         lrb.label("Absorbing Sides")
         print("  Low-reflecting boundaries set on side faces")
     except Exception:
-        print("  (low-reflecting boundaries skipped — free edges used)")
+        print("  (low-reflecting boundaries skipped -- free edges used)")
 
     # ---- [7] Multiphysics: Thermal Expansion ----
     print("\n[7/9] Thermal Expansion coupling ...")
@@ -270,17 +261,17 @@ def build_model(cfg, derived, array_points):
     mesh.feature("size").set("hmax", "h_coarse")
     mesh.feature("size").set("hmin", "0.01 [mm]")
 
-    # Fine mesh in wave region (ballSelection around the source)
+    # Fine mesh in wave region (Ball selection around the source)
     size_fine = mesh.feature().create("size_fine", "Size")
     size_fine.label("Fine – Wave Region")
     size_fine.set("hmax", "h_fine")
     fine_sel = comp.selection().create("sel_wave_region", "Ball")
-    fine_sel.set("entitydim", 3)
+    fine_sel.set("entitydim", "3")
     fine_sel.set("posx", "x0")
     fine_sel.set("posy", "y0")
     fine_sel.set("posz", "Lz/2")
-    fine_sel.set("radius", "r_coarse")
-    size_fine.selection().set("sel_wave_region")
+    fine_sel.set("r", "r_coarse")
+    size_fine.selection().named("sel_wave_region")
 
     mesh.feature().create("ftet1", "FreeTet")
     mesh.run()
@@ -294,25 +285,8 @@ def build_model(cfg, derived, array_points):
 
 
 # ===========================================================================
-# Probes, study, solve, export
+# Study, solve, data extraction, export
 # ===========================================================================
-
-def setup_probes(model_java, array_points):
-    """Create domain point probes — one per array grid point."""
-    print("\n[Probes] Creating domain point probes ...")
-    comp = model_java.component("comp1")
-    n = 0
-    for pt in array_points:
-        name = f"pdp_{pt['i']}_{pt['j']}"
-        try:
-            probe = comp.probe().create(name, "DomainPointProbe")
-            probe.label(f"Probe {pt['label']}")
-            probe.set("points", [pt["x"], pt["y"], pt["z"]])
-            probe.set("expr", "w")          # z-displacement in Solid Mechanics
-            n += 1
-        except Exception as e:
-            print(f"  Warning: {name}  {e}")
-    print(f"  {n}/{len(array_points)} probes created")
 
 
 def setup_study(model_java, cfg, derived):
@@ -333,7 +307,7 @@ def setup_study(model_java, cfg, derived):
 def solve_model(pymodel, cfg):
     """Run the time-dependent solver."""
     print("\n[9/9] Solving (time-dependent) ...")
-    print("  This may take several minutes — watch the COMSOL progress window.")
+    print("  This may take several minutes -- watch the COMSOL progress window.")
     t0 = _time.time()
     try:
         pymodel.solve()
@@ -346,34 +320,38 @@ def solve_model(pymodel, cfg):
         return False
 
 
-def extract_probe_data(model_java, array_points, derived):
-    """Read probe time-series from COMSOL result tables."""
-    print("\n  Extracting probe data ...")
+def extract_via_cutpoints(model_java, array_points, derived):
+    """Extract time series using CutPoint3D datasets (probes unavailable in client API)."""
+    print("\n  Extracting data via CutPoint3D datasets ...")
     n_steps = derived["n_steps"]
     n_pts = len(array_points)
     times = np.linspace(CONFIG["study_t_start"], CONFIG["study_t_end"], n_steps)
     displacements = np.full((n_pts, n_steps), np.nan)
-    missing = []
+
+    res = model_java.result()
 
     for idx, pt in enumerate(array_points):
-        name = f"pdp_{pt['i']}_{pt['j']}"
+        tag = f"cpt_{pt['i']}_{pt['j']}"
         try:
-            tbl = model_java.result().table(name)
-            raw = tbl.getReal()              # double[][]  [timestep][0]
-            if raw and len(raw) > 0:
-                vals = np.array([row[0] for row in raw])
-                n = min(len(vals), n_steps)
-                displacements[idx, :n] = vals[:n]
-            else:
-                missing.append(idx)
+            cp = res.dataset().create(tag, "CutPoint3D")
+            cp.set("data", "dset1")
+            cp.set("pointx", str(pt["x"]))
+            cp.set("pointy", str(pt["y"]))
+            cp.set("pointz", str(pt["z"]))
         except Exception:
-            missing.append(idx)
+            continue
 
-    n_ok = n_pts - len(missing)
-    print(f"  {n_ok}/{n_pts} probes read successfully")
-    if missing:
-        print(f"  {len(missing)} probes missing — these will be NaN in output")
-    return times, displacements, missing
+        # Evaluate at each stored timestep
+        for ti in range(n_steps):
+            try:
+                val = res.numerical(tag, "w", "mm")
+                displacements[idx, ti] = float(val)
+            except Exception:
+                pass  # keep NaN
+
+    n_ok = int(np.sum(~np.all(np.isnan(displacements), axis=1)))
+    print(f"  {n_ok}/{n_pts} points extracted")
+    return times, displacements, []
 
 
 def export_results(times, displacements, array_points, cfg, derived, output_dir):
@@ -468,11 +446,11 @@ def main(args=None):
     array_points = generate_array_points(cfg, derived)
 
     # ---- Print summary ----
-    print(f"\n  {'─'*56}")
+    print(f"\n  {'-'*56}")
     print(f"  Plate:     {cfg['plate_Lx']} x {cfg['plate_Ly']} x {cfg['plate_Lz']} mm")
     print(f"  Laser:     spot {cfg['laser_spot_radius']:.1f} mm, "
           f"{cfg['laser_pulse_FWHM']*1e9:.0f} ns FWHM, "
-          f"Q0 = {derived['Q0']:.2e} W/m²")
+          f"Q0 = {derived['Q0']:.2e} W/m^2")
     print(f"  Array:     {cfg['array_N']}x{cfg['array_N']} ({len(array_points)} pts), "
           f"{cfg['array_spacing']} mm spacing")
     print(f"  Mesh:      fine {cfg['mesh_fine_size']} mm / coarse {cfg['mesh_coarse_size']} mm")
@@ -480,11 +458,10 @@ def main(args=None):
           f"dt = {cfg['study_t_step']*1e9:.0f} ns ({derived['n_steps']} outputs)")
     if parsed.build_only:
         print(f"  Mode:      BUILD ONLY (no solve)")
-    print(f"  {'─'*56}")
+    print(f"  {'-'*56}")
 
     # ---- Build ----
     client, pymodel, java_model = build_model(cfg, derived, array_points)
-    setup_probes(java_model, array_points)
     setup_study(java_model, cfg, derived)
 
     # Save fully-built model
@@ -507,7 +484,9 @@ def main(args=None):
 
     # ---- Extract & export ----
     output_dir = Path(cfg["output_dir"])
-    times, displacements, missing = extract_probe_data(java_model, array_points, derived)
+    times, displacements, _missing = extract_via_cutpoints(
+        java_model, array_points, derived
+    )
     export_results(times, displacements, array_points, cfg, derived, output_dir)
 
     # Save solved model

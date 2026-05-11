@@ -11,6 +11,12 @@ description: >
   stand-alone and client-server modes. This skill captures API lessons learned
   through live testing against COMSOL 6.2 and self-improves by logging new
   debugging discoveries.
+compatibility: >
+  Requires COMSOL Multiphysics 6.0–6.3, mph Python library, numpy, pandas.
+  Stand-alone mode only on Windows. Linux/macOS require client-server mode.
+metadata:
+  version: "1.0"
+  comsol_version: "6.2"
 ---
 
 # COMSOL Automation via mph
@@ -92,7 +98,7 @@ grp.set("thermalexpansioncoefficient", "23.6e-6 [1/K]")
 
 **Wrong tags that will FAIL**: `"HeatFlux"`, `"InwardHeatFlux"`, `"AbsorbingBoundary"`.
 
-### Selections -- prefer direct entity numbers
+### Selections — prefer direct entity numbers
 
 Named selections via `feature.selection().set("name")` FAILS in client API.
 Use `.named("name")` for mesh features or direct entity numbers for physics:
@@ -104,9 +110,9 @@ bhs.selection().set(jpype.JArray(jpype.JInt, 1)([6]))          # boundary 6 = to
 # Mesh Size features: named selection via .named() (NOT .set())
 size_fine.selection().named("sel_wave_region")
 
-# Box selection for mesh refinement
+# Ball selection for mesh refinement (entitydim is STRING, radius is "r")
 fine_sel = comp.selection().create("sel_wave_region", "Ball")
-fine_sel.set("entitydim", "3")     # string, not int!
+fine_sel.set("entitydim", "3")     # string "3", not int 3!
 fine_sel.set("posx", "x0")
 fine_sel.set("posy", "y0")
 fine_sel.set("posz", "Lz/2")
@@ -120,27 +126,35 @@ mesh = comp.mesh().create("mesh1")
 mesh.feature("size").set("hmax", "h_coarse")
 mesh.feature("size").set("hmin", "0.01 [mm]")
 
-# Local refinement
+# Local refinement (Ball selection, entitydim string, r not radius)
 fine = mesh.feature().create("size_fine", "Size")
 fine.set("hmax", "h_fine")
-fine_sel = comp.selection().create("sel_fine", "BallSelection")
-fine_sel.set("entitydim", 3)
+fine_sel = comp.selection().create("sel_fine", "Ball")
+fine_sel.set("entitydim", "3")     # STRING!
 fine_sel.set("posx", "x0")
 fine_sel.set("posy", "y0")
 fine_sel.set("posz", "Lz/2")
-fine_sel.set("radius", "r_coarse")
-fine.selection().set("sel_fine")
+fine_sel.set("r", "r_coarse")      # "r" NOT "radius"!
+fine.selection().named("sel_fine") # .named() NOT .set()!
 
 mesh.feature().create("ftet1", "FreeTet")
 mesh.run()
 ```
 
-### Domain point probes
+### Probes — DomainPointProbe unavailable in client API
+
+`comp.probe().create(name, "DomainPointProbe")` throws "Operation cannot be
+created in this context" in COMSOL 6.2 client mode. **Use CutPoint3D datasets
+after solving instead:**
 
 ```python
-probe = comp.probe().create("pdp_0_0", "DomainPointProbe")
-probe.set("points", [x, y, z])
-probe.set("expr", "w")   # z-displacement in Solid Mechanics
+res = model.result()
+cp = res.dataset().create("cpt_0_0", "CutPoint3D")
+cp.set("data", "dset1")                     # parent solution dataset
+cp.set("pointx", str(x))
+cp.set("pointy", str(y))
+cp.set("pointz", str(z))
+val = res.numerical("cpt_0_0", "w", "mm")   # evaluate displacement
 ```
 
 ### Time-dependent study
@@ -203,5 +217,5 @@ are found to be version-specific.
 - `references/api-reference.md` — complete tag reference for physics, features, materials
 - `references/laser-ultrasound.md` — worked example: laser-induced guided waves
 - `references/debugging-log.md` — accumulated debugging experience
-- `assets/laser_ultrasound_model.py` — copy of the working simulation script
-- `assets/plot_results.py` — visualization script
+- `scripts/laser_ultrasound_model.py` — copy of the working simulation script
+- `scripts/plot_results.py` — visualization script
