@@ -79,11 +79,20 @@ Note: properties seem to be case-insensitive (`"Density"` and `"density"` both w
 
 ## Selection types
 
+**Critical**: COMSOL 6.2 selection type tags drop the `Selection` suffix.
+Use `"Box"`, `"Ball"`, `"Explicit"`, `"Cylinder"`, `"Union"`, etc.
+The longer forms (`"BoxSelection"`, `"BallSelection"`, `"ExplicitSelection"`) all FAIL.
+
 | Type | Tag | Purpose |
 |---|---|---|
-| Box selection | `"BoxSelection"` | Select by coordinate condition |
-| Ball selection | `"BallSelection"` | Select by distance from point |
-| Explicit | `"ExplicitSelection"` | Select by entity numbers |
+| Box selection | `"Box"` | Select by coordinate condition |
+| Ball selection | `"Ball"` | Select by distance from point |
+| Explicit | `"Explicit"` | Select by entity numbers |
+| Cylinder | `"Cylinder"` | Select by cylinder region |
+| Union | `"Union"` | Combine selections |
+| Intersection | `"Intersection"` | Intersect selections |
+| Difference | `"Difference"` | Subtract selections |
+| Adjacent | `"Adjacent"` | Select adjacent entities |
 
 ## Probe types
 

@@ -65,6 +65,19 @@ Format: symptom → root cause → solution.
 
 ---
 
+## Entry 3 — 2026-05-11: Selection type tags
+- **COMSOL**: 6.2, **mph**: 1.3.1, **OS**: Windows 11
+
+### `comp.selection().create("sel_top", "BoxSelection")` → Unknown selection type
+- **Root cause**: COMSOL 6.2 selection type tags drop the `Selection` suffix.
+- **Solution**: Use `"Box"`, `"Ball"`, `"Explicit"`, `"Cylinder"`, `"Union"`,
+  `"Intersection"`, `"Difference"`, `"Adjacent"`.
+- **All failed tags**: `"BoxSelection"`, `"BallSelection"`, `"ExplicitSelection"`,
+  `"CylinderSelection"`, `"UnionSelection"`, `"IntersectionSelection"`,
+  `"DifferenceSelection"`, `"AdjacentSelection"`.
+
+---
+
 ## Template for new entries
 
 ```markdown

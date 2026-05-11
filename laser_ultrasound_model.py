@@ -206,7 +206,7 @@ def build_model(cfg, derived, array_points):
     ht.feature("init1").set("Tinit", "T_amb")
 
     # Top-surface selection (z = Lz)
-    top_sel = comp.selection().create("sel_top", "BoxSelection")
+    top_sel = comp.selection().create("sel_top", "Box")
     top_sel.set("entitydim", 2)
     top_sel.set("condition", "z > Lz - 0.01[mm]")
 
@@ -229,7 +229,7 @@ def build_model(cfg, derived, array_points):
 
     # Low-reflecting boundaries on the four side faces
     try:
-        side_sel = comp.selection().create("sel_sides", "BoxSelection")
+        side_sel = comp.selection().create("sel_sides", "Box")
         side_sel.set("entitydim", 2)
         side_sel.set("condition",
             "(x < 0.01[mm]) || (x > Lx - 0.01[mm]) || "
@@ -274,7 +274,7 @@ def build_model(cfg, derived, array_points):
     size_fine = mesh.feature().create("size_fine", "Size")
     size_fine.label("Fine – Wave Region")
     size_fine.set("hmax", "h_fine")
-    fine_sel = comp.selection().create("sel_wave_region", "BallSelection")
+    fine_sel = comp.selection().create("sel_wave_region", "Ball")
     fine_sel.set("entitydim", 3)
     fine_sel.set("posx", "x0")
     fine_sel.set("posy", "y0")
