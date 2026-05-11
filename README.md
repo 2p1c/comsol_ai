@@ -8,12 +8,27 @@ COMSOL Multiphysics automation skills — programmatic simulation via Python.
 
 ## Install
 
+### Claude Code (`/plugin`)
+
 ```bash
-# Register this marketplace (one time)
+# Register the marketplace (one time)
 /plugin marketplace add 2p1c/comsol_ai
 
-# Install the COMSOL skill
+# Install the skill
 /plugin install comsol@comsol-skills
+```
+
+### Other AI agents (`npm`)
+
+```bash
+npm install @2p1c/comsol-ai
+```
+
+The postinstall script automatically registers the skill to `~/.claude/skills/comsol/`.
+If your agent loads skills from a different directory, copy manually:
+
+```bash
+cp -r node_modules/@2p1c/comsol-ai/skills/comsol ~/.your-agent/skills/comsol
 ```
 
 ## What's included

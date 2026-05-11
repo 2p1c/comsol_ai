@@ -4,16 +4,31 @@
 
 COMSOL Multiphysics 自动化技能——通过 Python 程序化建模与仿真。
 
-> **版本**: 1.1.0
+> **版本**: 1.2.0
 
 ## 安装
+
+### Claude Code（`/plugin`）
 
 ```bash
 # 注册插件市场（仅需一次）
 /plugin marketplace add 2p1c/comsol_ai
 
-# 安装 COMSOL 技能
+# 安装技能
 /plugin install comsol@comsol-skills
+```
+
+### 其他 AI Agent（`npm`）
+
+```bash
+npm install @2p1c/comsol-ai
+```
+
+安装后脚本会自动将技能注册到 `~/.claude/skills/comsol/`。
+如果你的 Agent 从其他目录加载技能，手动复制：
+
+```bash
+cp -r node_modules/@2p1c/comsol-ai/skills/comsol ~/.your-agent/skills/comsol
 ```
 
 ## 包含内容
