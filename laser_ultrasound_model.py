@@ -35,6 +35,7 @@ from pathlib import Path
 import sys
 import signal
 import json
+import subprocess
 import time as _time
 from datetime import datetime
 
@@ -291,7 +292,7 @@ def build_model(cfg, derived, array_points):
 
 
 def setup_study(model_java, cfg, derived):
-    """Create the time-dependent study step with solver logging."""
+    """Create the time-dependent study step."""
     print("\n[Study] Time-dependent step ...")
     study = model_java.study().create("std1")
     study.label("Laser Ultrasound – Time Dependent")
@@ -303,55 +304,91 @@ def setup_study(model_java, cfg, derived):
     step.set("rtol", "1e-5")
     step.set("plot", "on")           # convergence plots (GUI only)
     step.set("probesel", "all")      # record all probes
-
-    # Add solver log — writes time-step progress to a text file
-    try:
-        log = study.feature().create("solLog", "SolverLog")
-        log.set("logfile", "solver_progress.log")
-        log.set("display", "log")         # write iteration details
-        log.set("solvetime", "on")        # log solver timing
-        log.set("iteration", "on")        # log nonlinear iterations
-        print("  Solver log -> solver_progress.log")
-    except Exception:
-        pass    # SolverLog not available in all configurations
-
     print(f"  {cfg['study_t_start']*1e6:.1f} – {cfg['study_t_end']*1e6:.1f} us, "
           f"dt={cfg['study_t_step']*1e9:.0f} ns, {derived['n_steps']} outputs")
 
 
-def solve_model(pymodel, cfg):
-    """Run the time-dependent solver with graceful Ctrl+C handling."""
-    print("\n[9/9] Solving (time-dependent) ...")
-    print("  This may take several minutes.")
-    print("  In another terminal:  tail -f solver_progress.log")
-    print("  Or open solver_progress.log in a text editor to watch progress.")
-    print("  Press Ctrl+C to stop early (partial results will be saved).")
+def solve_model(pymodel, cfg, model_path, output_dir):
+    """Solve via comsolbatch for real-time progress, then reload into mph."""
+    import glob as _glob
 
-    interrupted = False
+    # Ensure output directory exists
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    def _on_interrupt(signum, frame):
-        nonlocal interrupted
-        interrupted = True
-        print("\n  !! Interrupt received -- waiting for solver to finish current step ...")
-        print("     (The solver will stop at the next time-step boundary.)")
+    comsol_bin = (
+        r"C:\Program Files\COMSOL\COMSOL62\Multiphysics\bin\win64"
+    )
+    comsolbatch = Path(comsol_bin) / "comsolbatch.exe"
+    if not comsolbatch.exists():
+        # Fall back to mph solve (no progress)
+        print("\n[9/9] Solving via mph (comsolbatch not found) ...")
+        print("  No real-time progress available.")
+        try:
+            pymodel.solve()
+            return True
+        except Exception as e:
+            print(f"  Solver error: {e}")
+            return False
 
-    old_handler = signal.signal(signal.SIGINT, _on_interrupt)
+    # Use absolute, resolved paths (no spaces/unicode issues)
+    input_path = str(Path(model_path).resolve())
+    solved_path = str(Path(output_dir).resolve() / "solved_model.mph")
+    log_path = str(Path(output_dir).resolve() / "solver_progress.log")
+
+    cmd = [
+        str(comsolbatch),
+        "-inputfile", input_path,
+        "-outputfile", solved_path,
+        "-batchlog", log_path,
+    ]
+
+    print(f"\n[9/9] Solving via comsolbatch (real-time progress) ...")
+    print(f"  Input:  {input_path}")
+    print(f"  Output: {solved_path}")
+    print(f"  Log:    {log_path}")
+    print(f"  Press Ctrl+C to abort (model will not be updated).")
+    print()
 
     t0 = _time.time()
+
     try:
-        pymodel.solve()
-        print(f"  Done in {_time.time() - t0:.0f} s")
-        return True
+        # Run with stdout streaming so user sees progress in real time
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            encoding="utf-8",
+            errors="replace",
+        )
+        for line in proc.stdout:
+            print(f"  {line.rstrip()}")
+        proc.wait()
+
+        if proc.returncode != 0:
+            print(f"\n  comsolbatch exited with code {proc.returncode}")
+            return False
+
+        print(f"\n  Done in {_time.time() - t0:.0f} s")
+
+        # Reload the solved model into mph for data extraction
+        print("  Reloading solved model into mph ...")
+        try:
+            client = mph.start(cores=4)
+            solved = client.load(solved_path)
+            # Replace pymodel's internal Java handle with the solved model
+            pymodel._java = solved.java
+            return True
+        except Exception as e:
+            print(f"  Failed to reload solved model: {e}")
+            print(f"  You can open {solved_path} manually in COMSOL GUI.")
+            return False
+
     except KeyboardInterrupt:
-        print("\n  Solver interrupted by user (partial solution saved).")
-        return True   # still export what we have
-    except Exception as e:
-        print(f"  Solver error: {e}")
-        print(f"  Model saved to '{cfg['model_filename']}'.")
-        print(f"  Open it in the COMSOL GUI, check the setup, and solve manually.")
+        proc.terminate()
+        print("\n  Aborted by user.")
         return False
-    finally:
-        signal.signal(signal.SIGINT, old_handler)
 
 
 def extract_via_cutpoints(model_java, array_points, derived):
@@ -512,12 +549,15 @@ def main(args=None):
         return 0
 
     # ---- Solve ----
-    ok = solve_model(pymodel, cfg)
+    output_dir = Path(cfg["output_dir"])
+    ok = solve_model(pymodel, cfg, cfg["model_filename"], str(output_dir))
     if not ok:
         return 1
 
+    # Reload java handle (comsolbatch path swaps the internal model)
+    java_model = pymodel.java
+
     # ---- Extract & export ----
-    output_dir = Path(cfg["output_dir"])
     times, displacements, _missing = extract_via_cutpoints(
         java_model, array_points, derived
     )

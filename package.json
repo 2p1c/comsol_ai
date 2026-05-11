@@ -1,6 +1,6 @@
 {
   "name": "@2p1c/comsol-ai",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "description": "Claude Code skill for COMSOL Multiphysics automation via mph + Java API. Programmatic model creation, parametric/time-domain/frequency studies, and data export. All API patterns verified against COMSOL 6.2.",
   "keywords": [
     "comsol",

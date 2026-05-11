@@ -4,7 +4,7 @@
 
 COMSOL Multiphysics automation skills — programmatic simulation via Python.
 
-> **Version**: 1.1.0
+> **Version**: 1.2.0
 
 ## Install
 
@@ -39,6 +39,18 @@ skills/comsol/          # The skill
 ```
 
 ## Changelog
+
+### v1.2.0 (2026-05-11)
+
+- 新增 `comsolbatch` 求解模式：实时文本进度输出（替代无 GUI 的 mph solve）
+- 新增 `--build-only` CLI 参数：构建后停止，方便在 COMSOL GUI 中检查
+- 新增 `--config` CLI 参数：通过外部 JSON 文件覆盖默认配置
+- 新增 Ctrl+C 优雅中断：求解器完成当前时间步后停止，不丢已解数据
+- 新增 `study.set("plot", "on")` 和 `probesel="all"` 求解进度设置
+- 修复 `SolverLog` 在客户端 API 不可用问题 → 改用 comsolbatch 日志
+- 修复 `ModelUtil.showProgress(true)` 崩溃（JVM 无 Swing toolkit）
+- 修复 comsolbatch 输出目录不存在问题
+- 新增 Entry 8 调试记录（SolverLog 不可用 + progress window 不可用）
 
 ### v1.1.0 (2026-05-11)
 

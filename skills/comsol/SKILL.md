@@ -15,7 +15,7 @@ compatibility: >
   Requires COMSOL Multiphysics 6.0–6.3, mph Python library, numpy, pandas.
   Stand-alone mode only on Windows. Linux/macOS require client-server mode.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   comsol_version: "6.2"
 ---
 
@@ -198,6 +198,12 @@ except Exception:
 - Unicode in print → GBK console; use ASCII: `W/m^2`, `--`, `-`
 - Solver fails → save .mph, open in COMSOL GUI, inspect setup
 - Probe data missing → probes unavailable via client API; use CutPoint3D evaluation
+- Progress window not showing → mph stand-alone is headless (no Swing). Use
+  comsolbatch for text progress, or open .mph in COMSOL Desktop GUI
+- SolverLog not creatable → same client-API limitation as probes. Use
+  comsolbatch's `-batchlog` flag which writes progress to a file
+- comsolbatch path errors → create output dir first, use absolute resolved paths
+- ModelUtil.showProgress crashes → JVM has no Swing toolkit in stand-alone mode
 
 ## Self-improvement mechanism
 

@@ -127,6 +127,30 @@ Format: symptom → root cause → solution.
 
 ---
 
+## Entry 8 — 2026-05-11: SolverLog + progress window both unavailable
+- **COMSOL**: 6.2, **mph**: 1.3.1, **OS**: Windows 11
+
+### `study.feature().create("solLog", "SolverLog")` → Operation cannot be created
+- **Root cause**: `SolverLog` (and all log feature variants) are not available
+  through the COMSOL client API, same limitation as `DomainPointProbe`.
+- **Solution**: Use `comsolbatch` external process for solving. It outputs
+  real-time text progress (time steps, iterations, convergence) to stdout.
+
+### `ModelUtil.showProgress(true)` → crash (No toolkit factory 'swing')
+- **Root cause**: mph's stand-alone mode embeds COMSOL in a headless JVM
+  without Swing GUI toolkit. Progress window is impossible in this mode.
+- **Solution**: Two options:
+  1. Build with mph `--build-only`, then solve via `comsolbatch` (text progress)
+  2. Open .mph in COMSOL Desktop GUI and solve there (full GUI progress)
+
+### `comsolbatch` output directory must exist before running
+- **Root cause**: comsolbatch does not create parent directories for
+  `-outputfile` or `-batchlog`.
+- **Solution**: Create output directory (`Path.mkdir(parents=True)`) before
+  invoking comsolbatch. Use absolute resolved paths to avoid encoding issues.
+
+---
+
 ## Template for new entries
 
 ```markdown
