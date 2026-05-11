@@ -19,7 +19,7 @@ const SKILL_NAME = 'comsol';
 function skillSource() {
   // When installed as an npm package, the skill/ folder is at the package root.
   // When running from the repo clone, it's also at the repo root.
-  return path.resolve(__dirname, '..', 'skill');
+  return path.resolve(__dirname, '..', 'skills', 'comsol');
 }
 
 function skillTarget() {

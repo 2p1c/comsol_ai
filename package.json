@@ -1,7 +1,7 @@
 {
   "name": "@2p1c/comsol-ai",
-  "version": "1.0.0",
-  "description": "COMSOL Multiphysics automation skill for Claude Code — programmatic model creation, simulation, and data export via the mph Python library and COMSOL Java API.",
+  "version": "1.0.1",
+  "description": "Claude Code skill for COMSOL Multiphysics automation via mph + Java API. Programmatic model creation, parametric/time-domain/frequency studies, and data export. All API patterns verified against COMSOL 6.2.",
   "keywords": [
     "comsol",
     "multiphysics",
@@ -11,7 +11,8 @@
     "mph",
     "laser-ultrasound",
     "finite-element",
-    "automation"
+    "automation",
+    "guided-waves"
   ],
   "homepage": "https://github.com/2p1c/comsol_ai",
   "repository": {
@@ -21,7 +22,7 @@
   "license": "MIT",
   "author": "2p1c",
   "files": [
-    "skill/",
+    "skills/",
     "laser_ultrasound_model.py",
     "plot_results.py",
     "requirements.txt",

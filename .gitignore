@@ -22,6 +22,7 @@ package-lock.json
 
 # Claude Code local config
 .claude/
+.claude-plugin/
 
 # OS
 Thumbs.db

@@ -8,15 +8,9 @@ description: >
   export simulation results (probe data, field evaluations, cut points),
   (4) Debug COMSOL API calls or model-tree navigation, (5) Work with .mph files
   from Python. Covers COMSOL versions 6.0–6.3 on Windows/Linux/macOS with mph
-  stand-alone and client-server modes. This skill captures API lessons learned
-  through live testing against COMSOL 6.2 and self-improves by logging new
-  debugging discoveries.
-compatibility: >
-  Requires COMSOL Multiphysics 6.0–6.3, mph Python library, numpy, pandas.
-  Stand-alone mode only on Windows. Linux/macOS require client-server mode.
-metadata:
-  version: "1.0"
-  comsol_version: "6.2"
+  stand-alone and client-server modes. All API patterns verified against
+  COMSOL 6.2 via live testing. Self-improves by logging debugging discoveries
+  to references/debugging-log.md.
 ---
 
 # COMSOL Automation via mph
@@ -166,14 +160,6 @@ step.set("tlist", "range(0, 5e-9, 10e-6)")
 step.set("rtol", "1e-5")
 ```
 
-### Data extraction from probes
-
-```python
-tbl = model.result().table("pdp_0_0")
-raw = tbl.getReal()   # returns double[][] — [timestep][0] for single-expr probes
-vals = [row[0] for row in raw]
-```
-
 ### Thermal Expansion coupling
 
 ```python
@@ -191,13 +177,21 @@ except Exception:
     pass
 ```
 
-## Fallbacks when things fail
+## Common pitfalls & fallbacks
 
-- If `mph.start()` fails stand-alone → switch to `mph.option('session', 'client-server')`
-- If physics tag fails → check `references/api-reference.md` for the full tag table
-- If material `set()` fails → ensure you're using `propertyGroup("def").set()`
-- If `model.component("comp1")` fails → ensure `modelNode().create("comp1")` was called first
-- If solver fails → save .mph, open in COMSOL GUI, inspect setup manually
+- `mph.start()` stand-alone fails → switch to `mph.option('session', 'client-server')`
+- Physics tag unknown → check `references/api-reference.md` for verified tags
+- `mat.set()` fails → MUST use `mat.propertyGroup("def").set(prop, val)`
+- `model.component("comp1")` fails → `modelNode().create("comp1")` must be called first
+- `set("entitydim", 2)` ambiguous → pass as string: `set("entitydim", "2")`
+- `set("radius", ...)` unknown → use `"r"` not `"radius"`
+- `selection().set("name")` → use `.named("name")` for named, `.set(JArray([N]))` for nums
+- `BoxSelection` / `BallSelection` unknown → drop `Selection` suffix: `"Box"`, `"Ball"`
+- `DomainPointProbe` fails → use `result().dataset().create("cpt", "CutPoint3D")` post-solve
+- `selection().all()` on `free1` → Free BC is read-only, skip it
+- Unicode in print → GBK console; use ASCII: `W/m^2`, `--`, `-`
+- Solver fails → save .mph, open in COMSOL GUI, inspect setup
+- Probe data missing → probes unavailable via client API; use CutPoint3D evaluation
 
 ## Self-improvement mechanism
 
