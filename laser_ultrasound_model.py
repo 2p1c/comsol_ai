@@ -33,6 +33,7 @@ import numpy as np
 import argparse
 from pathlib import Path
 import sys
+import signal
 import json
 import time as _time
 from datetime import datetime
@@ -308,19 +309,36 @@ def setup_study(model_java, cfg, derived):
 
 
 def solve_model(pymodel, cfg):
-    """Run the time-dependent solver."""
+    """Run the time-dependent solver with graceful Ctrl+C handling."""
     print("\n[9/9] Solving (time-dependent) ...")
     print("  This may take several minutes -- watch the COMSOL progress window.")
+    print("  Press Ctrl+C to stop early (partial results will be saved).")
+
+    interrupted = False
+
+    def _on_interrupt(signum, frame):
+        nonlocal interrupted
+        interrupted = True
+        print("\n  !! Interrupt received -- waiting for solver to finish current step ...")
+        print("     (The solver will stop at the next time-step boundary.)")
+
+    old_handler = signal.signal(signal.SIGINT, _on_interrupt)
+
     t0 = _time.time()
     try:
         pymodel.solve()
         print(f"  Done in {_time.time() - t0:.0f} s")
         return True
+    except KeyboardInterrupt:
+        print("\n  Solver interrupted by user (partial solution saved).")
+        return True   # still export what we have
     except Exception as e:
         print(f"  Solver error: {e}")
         print(f"  Model saved to '{cfg['model_filename']}'.")
         print(f"  Open it in the COMSOL GUI, check the setup, and solve manually.")
         return False
+    finally:
+        signal.signal(signal.SIGINT, old_handler)
 
 
 def extract_via_cutpoints(model_java, array_points, derived):
