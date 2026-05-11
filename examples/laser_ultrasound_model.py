@@ -44,15 +44,15 @@ from datetime import datetime
 # ===========================================================================
 
 CONFIG = {
-    # --- Plate ---
-    "plate_Lx": 40.0,       # mm
-    "plate_Ly": 40.0,       # mm
+    # --- Plate (reduced size to control mesh DOFs) ---
+    "plate_Lx": 20.0,       # mm
+    "plate_Ly": 20.0,       # mm
     "plate_Lz": 2.0,        # mm (thickness)
 
     # --- Laser (1064 nm, thermoelastic regime) ---
-    "laser_x0": 20.0,                # mm
-    "laser_y0": 20.0,                # mm
-    "laser_spot_radius": 0.3,        # mm, 1/e² intensity radius
+    "laser_x0": 10.0,                # mm (center of plate)
+    "laser_y0": 10.0,                # mm
+    "laser_spot_radius": 0.5,        # mm, 1/e^2 intensity radius (larger spot → coarser mesh ok)
     "laser_pulse_FWHM": 10.0e-9,     # s  (10 ns)
     "laser_peak_time": 30.0e-9,      # s  (shift from t=0)
     "laser_absorbed_energy": 0.1e-3, # J  (0.1 mJ)
@@ -67,19 +67,19 @@ CONFIG = {
     "material_T0":     293.15,     # K
 
     # --- Receiving array ---
-    "array_N": 7,                # N×N square grid
+    "array_N": 5,                # 5×5 square grid (25 pts, enough for spatial sampling)
     "array_spacing": 2.0,        # mm
     "array_z_surface": "top",    # "top" or "bottom"
 
-    # --- Mesh ---
-    "mesh_fine_size": 0.3,       # mm, central region
-    "mesh_coarse_size": 1.5,     # mm, outer region
-    "mesh_coarse_radius": 15.0,  # mm, fine-mesh radius around source
+    # --- Mesh (coarser to fit in 16 GB RAM) ---
+    "mesh_fine_size": 0.6,       # mm, central region (~2 elements per shear wavelength at 2 MHz)
+    "mesh_coarse_size": 2.0,     # mm, outer region
+    "mesh_coarse_radius": 10.0,  # mm, fine-mesh radius around source
 
-    # --- Study ---
+    # --- Study (shorter duration, fewer steps) ---
     "study_t_start": 0.0,        # s
-    "study_t_end":   10.0e-6,    # s
-    "study_t_step":   5.0e-9,    # s
+    "study_t_end":   5.0e-6,     # s  (5 us: S0 arrives ~1.8us, A0 arrives ~3.3us at 10mm)
+    "study_t_step":   10.0e-9,   # s  (10 ns, 500 steps)
 
     # --- Output ---
     "output_dir":    "output",
