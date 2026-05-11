@@ -28,3 +28,5 @@ package-lock.json
 # OS
 Thumbs.db
 .DS_Store
+package.json
+CLAUDE.md
