@@ -183,6 +183,65 @@ except Exception:
     pass
 ```
 
+## Solving: build–solve separation (comsolbatch)
+
+mph stand-alone mode runs in a **headless JVM** (no Swing GUI). This means:
+- `ModelUtil.showProgress()` → crash
+- `SolverLog` feature → "cannot create in this context"
+- Progress window → impossible
+
+**Recommended architecture**: build with mph, solve with comsolbatch.
+
+### Build phase (mph, always fast)
+
+```bash
+python laser_ultrasound_model.py --build-only
+```
+
+Creates `.mph` with all physics, mesh, and study settings. Inspect in COMSOL GUI.
+
+### Solve phase (comsolbatch, real-time progress)
+
+```python
+import subprocess, pathlib
+
+output_dir = pathlib.Path("output")
+output_dir.mkdir(parents=True, exist_ok=True)
+
+cmd = [
+    r"C:\Program Files\COMSOL\COMSOL62\Multiphysics\bin\win64\comsolbatch.exe",
+    "-inputfile",  str(pathlib.Path("laser_ultrasound_model.mph").resolve()),
+    "-outputfile", str((output_dir / "solved_model.mph").resolve()),
+    "-batchlog",   str((output_dir / "solver_progress.log").resolve()),
+]
+
+proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, bufsize=1, encoding="utf-8", errors="replace")
+for line in proc.stdout:
+    print(f"  {line.rstrip()}")     # real-time: Time-step N, Nonlinear its: M, ...
+proc.wait()
+```
+
+Output looks like:
+```
+Time-step 1, Nonlinear iterations: 2, Convergence: 1.2e-6
+Time-step 2, Nonlinear iterations: 1, Convergence: 8.3e-7
+...
+```
+
+### Post-solve (mph, data extraction)
+
+```python
+client = mph.start(cores=4)
+model = client.load(str(output_dir / "solved_model.mph"))
+# Then use CutPoint3D / result().numerical() to extract data
+```
+
+### Alternative: solve in COMSOL Desktop GUI
+
+Open the `.mph` in COMSOL Desktop → Study → Compute. Full progress window
+with convergence plots, real-time probe graphs, and solver log.
+
 ## Common pitfalls & fallbacks
 
 - `mph.start()` stand-alone fails → switch to `mph.option('session', 'client-server')`
