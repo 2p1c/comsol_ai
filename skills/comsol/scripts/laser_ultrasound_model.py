@@ -291,7 +291,7 @@ def build_model(cfg, derived, array_points):
 
 
 def setup_study(model_java, cfg, derived):
-    """Create the time-dependent study step."""
+    """Create the time-dependent study step with solver logging."""
     print("\n[Study] Time-dependent step ...")
     study = model_java.study().create("std1")
     study.label("Laser Ultrasound – Time Dependent")
@@ -301,8 +301,20 @@ def setup_study(model_java, cfg, derived):
         f"range({cfg['study_t_start']}, {cfg['study_t_step']}, {cfg['study_t_end']})"
     )
     step.set("rtol", "1e-5")
-    step.set("plot", "on")           # show convergence plots during solve
-    step.set("probesel", "all")      # record all probes (for GUI inspection)
+    step.set("plot", "on")           # convergence plots (GUI only)
+    step.set("probesel", "all")      # record all probes
+
+    # Add solver log — writes time-step progress to a text file
+    try:
+        log = study.feature().create("solLog", "SolverLog")
+        log.set("logfile", "solver_progress.log")
+        log.set("display", "log")         # write iteration details
+        log.set("solvetime", "on")        # log solver timing
+        log.set("iteration", "on")        # log nonlinear iterations
+        print("  Solver log -> solver_progress.log")
+    except Exception:
+        pass    # SolverLog not available in all configurations
+
     print(f"  {cfg['study_t_start']*1e6:.1f} – {cfg['study_t_end']*1e6:.1f} us, "
           f"dt={cfg['study_t_step']*1e9:.0f} ns, {derived['n_steps']} outputs")
 
@@ -310,7 +322,9 @@ def setup_study(model_java, cfg, derived):
 def solve_model(pymodel, cfg):
     """Run the time-dependent solver with graceful Ctrl+C handling."""
     print("\n[9/9] Solving (time-dependent) ...")
-    print("  This may take several minutes -- watch the COMSOL progress window.")
+    print("  This may take several minutes.")
+    print("  In another terminal:  tail -f solver_progress.log")
+    print("  Or open solver_progress.log in a text editor to watch progress.")
     print("  Press Ctrl+C to stop early (partial results will be saved).")
 
     interrupted = False
