@@ -52,7 +52,7 @@ CONFIG = {
     # --- Laser (1064 nm, thermoelastic regime) ---
     "laser_x0": 10.0,                # mm (center of plate)
     "laser_y0": 10.0,                # mm
-    "laser_spot_radius": 0.5,        # mm, 1/e^2 intensity radius (larger spot → coarser mesh ok)
+    "laser_spot_radius": 1.5,        # mm, 1/e^2 radius (wide enough for mesh to resolve)
     "laser_pulse_FWHM": 10.0e-9,     # s  (10 ns)
     "laser_peak_time": 30.0e-9,      # s  (shift from t=0)
     "laser_absorbed_energy": 0.1e-3, # J  (0.1 mJ)
@@ -71,10 +71,10 @@ CONFIG = {
     "array_spacing": 2.0,        # mm
     "array_z_surface": "top",    # "top" or "bottom"
 
-    # --- Mesh (coarser to fit in 16 GB RAM) ---
-    "mesh_fine_size": 0.6,       # mm, central region (~2 elements per shear wavelength at 2 MHz)
+    # --- Mesh (must resolve the laser spot: sigma_s = spot_radius/2 = 0.75 mm) ---
+    "mesh_fine_size": 0.3,       # mm, resolves 0.75mm Gaussian (~5 nodes across FWHM)
     "mesh_coarse_size": 2.0,     # mm, outer region
-    "mesh_coarse_radius": 10.0,  # mm, fine-mesh radius around source
+    "mesh_coarse_radius": 8.0,   # mm, fine-mesh radius around source (smaller = fewer DOFs)
 
     # --- Study (shorter duration, fewer steps) ---
     "study_t_start": 0.0,        # s
@@ -590,9 +590,7 @@ def main(args=None):
     )
     export_results(times, displacements, array_points, cfg, derived, output_dir)
 
-    # Save solved model
-    solved = output_dir / "solved_model.mph"
-    pymodel.save(str(solved))
+    # Solved model already saved by comsolbatch → output/solved_model.mph
 
     # ---- Summary ----
     valid = int(np.sum(~np.all(np.isnan(displacements), axis=1)))
@@ -600,7 +598,6 @@ def main(args=None):
     print(f"  Done in {_time.time() - t_start:.0f} s")
     print(f"  Valid signals: {valid}/{len(array_points)}")
     print(f"  Output:        {output_dir.resolve()}")
-    print(f"  Solved model:  {solved}")
     print(f"{'='*62}\n")
     return 0
 
