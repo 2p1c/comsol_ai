@@ -303,7 +303,6 @@ def setup_study(model_java, cfg, derived):
     step.set("rtol", "1e-5")
     step.set("plot", "on")           # show convergence plots during solve
     step.set("probesel", "all")      # record all probes (for GUI inspection)
-    step.set("output", "all")        # store output at all timesteps
     print(f"  {cfg['study_t_start']*1e6:.1f} – {cfg['study_t_end']*1e6:.1f} us, "
           f"dt={cfg['study_t_step']*1e9:.0f} ns, {derived['n_steps']} outputs")
 
