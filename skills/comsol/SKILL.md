@@ -26,6 +26,26 @@ Always prefer the **Java API bridge** (`model.java`) over mph's Python wrapper
 for physics/material/mesh/study/probe setup — the mph Python API is mainly for
 parameters, geometry, saving, and solving.
 
+## Prerequisites & auto-detection
+
+**Required**:
+- COMSOL Multiphysics 6.0–6.3 installed (any license type)
+- Python 3.x 64-bit (NOT Microsoft Store version on Windows)
+- `pip install mph numpy pandas`
+
+**Auto-detection**: mph finds COMSOL automatically via Windows registry (Windows),
+default install paths, or the `comsol` command in PATH. No manual path config needed.
+`mph.discovery.backend()` returns the install root — use this to locate
+`comsolbatch` too (see Solving section below).
+
+**If COMSOL not installed**: `mph.start()` raises an error. Check:
+- Windows: `C:\Program Files\COMSOL\COMSOL6*\Multiphysics\bin\win64\comsol.exe`
+- Linux: `/usr/local/comsol*/multiphysics/bin/glnxa64/comsol`
+- macOS: `/Applications/COMSOL*/Multiphysics/bin/maci64/comsol`
+
+**If mph not installed**: `ModuleNotFoundError: No module named 'mph'`
+→ `pip install mph`
+
 ## Quick-start checklist
 
 1. `pip install mph numpy pandas`
@@ -202,6 +222,27 @@ Creates `.mph` with all physics, mesh, and study settings. Inspect in COMSOL GUI
 
 ### Solve phase (comsolbatch, real-time progress)
 
+**Auto-detect comsolbatch** via mph.discovery (same mechanism mph uses to find COMSOL):
+
+```python
+import mph.discovery
+import platform
+
+def find_comsolbatch():
+    backend = mph.discovery.backend()     # e.g. root = COMSOL62/Multiphysics
+    root = backend["root"]
+    system = platform.system()
+    if system == "Windows":
+        batch = root / "bin" / "win64" / "comsolbatch.exe"
+    elif system == "Linux":
+        batch = root / "bin" / "glnxa64" / "comsolbatch"
+    else:  # macOS
+        batch = root / "bin" / "maci64" / "comsolbatch"
+    return batch if batch.exists() else None
+```
+
+**Run the solve** with stdout streaming:
+
 ```python
 import subprocess, pathlib
 
@@ -209,8 +250,8 @@ output_dir = pathlib.Path("output")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 cmd = [
-    r"C:\Program Files\COMSOL\COMSOL62\Multiphysics\bin\win64\comsolbatch.exe",
-    "-inputfile",  str(pathlib.Path("laser_ultrasound_model.mph").resolve()),
+    str(find_comsolbatch()),
+    "-inputfile",  str(pathlib.Path("model.mph").resolve()),
     "-outputfile", str((output_dir / "solved_model.mph").resolve()),
     "-batchlog",   str((output_dir / "solver_progress.log").resolve()),
 ]
@@ -221,6 +262,8 @@ for line in proc.stdout:
     print(f"  {line.rstrip()}")     # real-time: Time-step N, Nonlinear its: M, ...
 proc.wait()
 ```
+
+**Fallback**: if comsolbatch not found → `pymodel.solve()` (no progress, but works).
 
 Output looks like:
 ```

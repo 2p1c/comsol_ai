@@ -308,18 +308,45 @@ def setup_study(model_java, cfg, derived):
           f"dt={cfg['study_t_step']*1e9:.0f} ns, {derived['n_steps']} outputs")
 
 
+def _find_comsolbatch():
+    """Auto-detect comsolbatch.exe via mph.discovery (same mechanism mph uses)."""
+    try:
+        import mph.discovery
+        backend = mph.discovery.backend()
+        root = backend["root"]
+        # Platform-specific binary path
+        import platform
+        if platform.system() == "Windows":
+            batch = root / "bin" / "win64" / "comsolbatch.exe"
+        elif platform.system() == "Linux":
+            batch = root / "bin" / "glnxa64" / "comsolbatch"
+        else:  # macOS
+            batch = root / "bin" / "maci64" / "comsolbatch"
+        if batch.exists():
+            return batch
+    except Exception:
+        pass
+
+    # Fallback: try hardcoded paths for COMSOL 6.0–6.3
+    import platform
+    candidates = []
+    base = Path(r"C:\Program Files\COMSOL") if platform.system() == "Windows" else Path("/usr/local/comsol")
+    for ver in ["63", "62", "61", "60"]:
+        if platform.system() == "Windows":
+            candidates.append(base / f"COMSOL{ver}" / "Multiphysics" / "bin" / "win64" / "comsolbatch.exe")
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
 def solve_model(pymodel, cfg, model_path, output_dir):
     """Solve via comsolbatch for real-time progress, then reload into mph."""
-    import glob as _glob
-
     # Ensure output directory exists
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    comsol_bin = (
-        r"C:\Program Files\COMSOL\COMSOL62\Multiphysics\bin\win64"
-    )
-    comsolbatch = Path(comsol_bin) / "comsolbatch.exe"
-    if not comsolbatch.exists():
+    comsolbatch = _find_comsolbatch()
+    if comsolbatch is None:
         # Fall back to mph solve (no progress)
         print("\n[9/9] Solving via mph (comsolbatch not found) ...")
         print("  No real-time progress available.")
