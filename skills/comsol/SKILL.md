@@ -11,6 +11,12 @@ description: >
   stand-alone and client-server modes. All API patterns verified against
   COMSOL 6.2 via live testing. Self-improves by logging debugging discoveries
   to references/debugging-log.md.
+compatibility: >
+  Requires COMSOL Multiphysics 6.0–6.3, mph Python library, numpy, pandas.
+  Stand-alone mode only on Windows. Linux/macOS require client-server mode.
+metadata:
+  version: "1.1.0"
+  comsol_version: "6.2"
 ---
 
 # COMSOL Automation via mph

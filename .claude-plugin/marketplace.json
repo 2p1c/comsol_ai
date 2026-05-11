@@ -1,0 +1,22 @@
+{
+  "name": "comsol-skills",
+  "owner": {
+    "name": "2p1c",
+    "email": "akidforseven@gmail.com"
+  },
+  "metadata": {
+    "description": "COMSOL Multiphysics automation skills for laser-ultrasound simulation and beyond",
+    "version": "1.1.0"
+  },
+  "plugins": [
+    {
+      "name": "comsol",
+      "description": "General-purpose COMSOL Multiphysics automation via the mph Python library and COMSOL Java API. Covers model creation, physics setup, meshing, studies, and result extraction for COMSOL 6.0–6.3",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/comsol"
+      ]
+    }
+  ]
+}

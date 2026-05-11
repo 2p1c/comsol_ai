@@ -2,43 +2,43 @@
 
 [English](README.md) | [中文](README_zh.md)
 
-COMSOL Multiphysics automation skills — programmatic simulation via Python.
+COMSOL Multiphysics 自动化技能——通过 Python 程序化建模与仿真。
 
-> **Version**: 1.1.0
+> **版本**: 1.1.0
 
-## Install
+## 安装
 
 ```bash
-# Register this marketplace (one time)
+# 注册插件市场（仅需一次）
 /plugin marketplace add 2p1c/comsol_ai
 
-# Install the COMSOL skill
+# 安装 COMSOL 技能
 /plugin install comsol@comsol-skills
 ```
 
-## What's included
+## 包含内容
 
-| Skill | Description |
+| 技能 | 说明 |
 |-------|-------------|
-| `comsol` | COMSOL model creation, physics setup, meshing, parametric/time-domain studies, and result extraction via mph + COMSOL Java API. Verified against COMSOL 6.2. |
+| `comsol` | COMSOL 建模、物理场设置、网格划分、参数化/时域研究、结果提取。基于 mph + COMSOL Java API，已通过 COMSOL 6.2 实机验证。 |
 
-## Prerequisites
+## 环境要求
 
 - COMSOL Multiphysics 6.0–6.3
-- Python 3.x with `mph`, `numpy`, `pandas`
+- Python 3.x + `mph`、`numpy`、`pandas`
 
-## Repository structure
+## 仓库结构
 
 ```
-skills/comsol/          # The skill
-├── SKILL.md            # Skill instructions
-├── scripts/            # Simulation scripts
-├── references/         # API reference, debugging log, examples
+skills/comsol/          # 技能目录
+├── SKILL.md            # 技能说明
+├── scripts/            # 仿真脚本
+├── references/         # API 参考、调试日志、示例
 .claude-plugin/
-└── marketplace.json    # Plugin registry manifest
+└── marketplace.json    # 插件市场清单
 ```
 
-## Changelog
+## 更新日志
 
 ### v1.1.0 (2026-05-11)
 
