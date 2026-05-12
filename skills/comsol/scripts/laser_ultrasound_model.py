@@ -521,6 +521,17 @@ def main(args=None):
     except Exception:
         pass
 
+    # ---- Animate ----
+    try:
+        from animate_results import make_animation, load_surface_field
+        print("\n  Generating wave animation ...")
+        xs, ys, ws, n_steps = load_surface_field(pymodel)
+        ani_path = output_dir / "wave_animation.mp4"
+        times_arr = np.linspace(cfg["study_t_start"], cfg["study_t_end"], derived["n_steps"])
+        make_animation(xs, ys, ws, n_steps, ani_path, times_arr, fps=15)
+    except Exception as e:
+        print(f"  Animation skipped: {e}")
+
     # ---- Summary ----
     valid = int(np.sum(~np.all(np.isnan(displacements), axis=1)))
     print(f"\n{'='*62}")

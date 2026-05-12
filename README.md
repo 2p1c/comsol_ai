@@ -4,7 +4,7 @@
 
 COMSOL Multiphysics automation skills — programmatic simulation via Python.
 
-> **Version**: 1.2.0
+> **Version**: 1.3.0
 
 ## Install
 
@@ -58,6 +58,18 @@ examples/                       # Runnable example: laser ultrasound
 ```
 
 ## Changelog
+
+### v1.3.0 (2026-05-12)
+
+- 新增 `animate_results.py`：求解后自动生成波场动画 (MP4)
+- 新增 3 层网格结构：光斑 0.1mm / 波区 0.5mm / 外层 2.0mm
+- 修复 `exp()` 表达式 underflow 导致热源归零（需 sigma_s >= 5mm，D > 5e-5）
+- 修复热膨胀耦合静默失效 → 改用 `lemm1.feature().create("tef1","ThermalExpansion")`
+- 修复数据提取 NaN → 改用 `pymodel.evaluate()` + 最近邻节点查找
+- 修复 `pymodel.save()` 文件锁 → UUID 文件名
+- 修复 `max()`/`min()`/`if()`/空间比较在边界上评估为 0
+- 新增 Client API limitations 文档表（已验证 6.2）
+- debugging-log 增至 Entry 12
 
 ### v1.2.0 (2026-05-11)
 
