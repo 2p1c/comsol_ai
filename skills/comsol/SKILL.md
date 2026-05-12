@@ -161,20 +161,26 @@ mesh.feature().create("ftet1", "FreeTet")
 mesh.run()
 ```
 
-### Probes — DomainPointProbe unavailable in client API
+### Data extraction — use pymodel.evaluate() + nearest-node
 
-`comp.probe().create(name, "DomainPointProbe")` throws "Operation cannot be
-created in this context" in COMSOL 6.2 client mode. **Use CutPoint3D datasets
-after solving instead:**
+`CutPoint3D + res.numerical()` does not work via the client API. Instead,
+evaluate the full field and find nearest mesh nodes:
 
 ```python
-res = model.result()
-cp = res.dataset().create("cpt_0_0", "CutPoint3D")
-cp.set("data", "dset1")                     # parent solution dataset
-cp.set("pointx", str(x))
-cp.set("pointy", str(y))
-cp.set("pointz", str(z))
-val = res.numerical("cpt_0_0", "w", "mm")   # evaluate displacement
+import numpy as np
+
+# Get node coordinates at t=0
+x0 = pymodel.evaluate("x", "mm")       # (n_timesteps, n_nodes)
+coords = np.column_stack([x0[0], pymodel.evaluate("y","mm")[0], pymodel.evaluate("z","mm")[0]])
+
+# Full displacement field
+w_all = pymodel.evaluate("w", "mm")    # (n_timesteps, n_nodes)
+
+# Nearest-node lookup for each target point
+for pt in target_points:
+    dists = np.linalg.norm(coords - [pt["x"], pt["y"], pt["z"]], axis=1)
+    nearest = np.argmin(dists)
+    time_series = w_all[:, nearest]    # extract this node's time series
 ```
 
 ### Time-dependent study
@@ -186,31 +192,41 @@ step.set("tlist", "range(0, 5e-9, 10e-6)")
 step.set("rtol", "1e-5")
 ```
 
-### Thermal Expansion coupling
+### Thermal Expansion — add to Linear Elastic Material (NOT multiphysics)
+
+The `comp.multiphysics().create("te1","ThermalExpansion")` node cannot be
+configured via the client API (its `ThermalExpansionModel` sub-feature
+reports "Unknown feature ID"). **Instead, add ThermalExpansion as a
+sub-feature of the Solid Mechanics Linear Elastic Material node:**
 
 ```python
-te = comp.multiphysics().create("te1", "ThermalExpansion", "geom1")
-te.set("Tref", "T_amb")
-try:
-    tem = te.feature().create("tem1", "ThermalExpansionModel")
-    tem.set("HeatTransferInterface", "ht")
-    tem.set("StructuralInterface", "solid")
-except Exception:
-    pass
-try:
-    te.set("Temperature", "T")
-except Exception:
-    pass
+lemm = solid.feature("lemm1")                         # Linear Elastic Material
+tef = lemm.feature().create("tef1", "ThermalExpansion")
+tef.set("Tref", "T_amb")                              # reference temperature
+tef.set("alpha", "23.6e-6 [1/K]")                     # CTE
 ```
 
-## Solving: build–solve separation (comsolbatch)
+### exp() underflow — keep denominator > 1e-5
 
-mph stand-alone mode runs in a **headless JVM** (no Swing GUI). This means:
-- `ModelUtil.showProgress()` → crash
-- `SolverLog` feature → "cannot create in this context"
-- Progress window → impossible
+Gaussian expressions like `exp(-r²/(2*sigma_s²))` evaluate to **zero globally**
+if the denominator `D = 2*sigma_s²` is ≤ 1e-5. At far mesh nodes `exp(-r²/D)`
+underflows to 0, and COMSOL then zeros the entire expression.
 
-**Recommended architecture**: build with mph, solve with comsolbatch.
+**Rule**: Ensure `D > 5e-5` (sigma_s ≥ 5 mm). For a plate of size X by Y,
+the max distance from center is `r_max = sqrt((X/2)²+(Y/2)²)`, and you need
+`r_max²/D < ~40` to avoid underflow.
+
+Also broken via API: `max()`, `min()`, `if()`, and spatial comparisons like
+`((x-x0)² < 2*sigma_s²)` — all evaluate to 0 on boundaries.
+
+## Solving: use mph.solve() (comsolbatch drops solution data)
+
+`comsolbatch` does NOT save solution datasets to the output .mph file,
+making post-solve data extraction impossible. **Use `pymodel.solve()` instead.**
+
+mph stand-alone mode runs in a **headless JVM** (no Swing GUI), so the
+COMSOL progress window won't appear. For progress monitoring during long
+solves, use `--build-only` first, then solve interactively in COMSOL Desktop.
 
 ### Build phase (mph, always fast)
 
@@ -218,52 +234,22 @@ mph stand-alone mode runs in a **headless JVM** (no Swing GUI). This means:
 python laser_ultrasound_model.py --build-only
 ```
 
-Creates `.mph` with all physics, mesh, and study settings. Inspect in COMSOL GUI.
-
-### Solve phase (comsolbatch, real-time progress)
-
-**Auto-detect comsolbatch** via mph.discovery (same mechanism mph uses to find COMSOL):
+### Solve phase (mph)
 
 ```python
-import mph.discovery
-import platform
-
-def find_comsolbatch():
-    backend = mph.discovery.backend()     # e.g. root = COMSOL62/Multiphysics
-    root = backend["root"]
-    system = platform.system()
-    if system == "Windows":
-        batch = root / "bin" / "win64" / "comsolbatch.exe"
-    elif system == "Linux":
-        batch = root / "bin" / "glnxa64" / "comsolbatch"
-    else:  # macOS
-        batch = root / "bin" / "maci64" / "comsolbatch"
-    return batch if batch.exists() else None
+pymodel.solve()    # blocking, solution data preserved
 ```
 
-**Run the solve** with stdout streaming:
+### File lock workaround
+
+`pymodel.save("name.mph")` fails if the filename was used earlier in the
+same session. Save with a UUID suffix:
 
 ```python
-import subprocess, pathlib
-
-output_dir = pathlib.Path("output")
-output_dir.mkdir(parents=True, exist_ok=True)
-
-cmd = [
-    str(find_comsolbatch()),
-    "-inputfile",  str(pathlib.Path("model.mph").resolve()),
-    "-outputfile", str((output_dir / "solved_model.mph").resolve()),
-    "-batchlog",   str((output_dir / "solver_progress.log").resolve()),
-]
-
-proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                        text=True, bufsize=1, encoding="utf-8", errors="replace")
-for line in proc.stdout:
-    print(f"  {line.rstrip()}")     # real-time: Time-step N, Nonlinear its: M, ...
-proc.wait()
+import uuid
+pre_solve_name = f"_pre_solve_{uuid.uuid4().hex[:8]}.mph"
+pymodel.save(pre_solve_name)
 ```
-
-**Fallback**: if comsolbatch not found → `pymodel.solve()` (no progress, but works).
 
 Output looks like:
 ```

@@ -33,9 +33,7 @@ import numpy as np
 import argparse
 from pathlib import Path
 import sys
-import signal
 import json
-import subprocess
 import time as _time
 from datetime import datetime
 
@@ -50,11 +48,13 @@ CONFIG = {
     "plate_Lz": 2.0,        # mm (thickness)
 
     # --- Laser (1064 nm, thermoelastic regime) ---
+    # sigma_s = spot_radius/2. Min sigma ~5mm required to prevent exp()
+    # underflow at plate corners via the COMSOL client API (verified: D < 1e-5
+    # causes exp(-large) → 0 globally). For tighter spots, open .mph in GUI.
     "laser_x0": 10.0,                # mm (center of plate)
     "laser_y0": 10.0,                # mm
-    "laser_spot_radius": 1.5,        # mm, 1/e^2 radius (wide enough for mesh to resolve)
-    "laser_pulse_FWHM": 10.0e-9,     # s  (10 ns)
-    "laser_peak_time": 30.0e-9,      # s  (shift from t=0)
+    "laser_spot_radius": 10.0,       # mm, 1/e^2 radius (sigma=5mm, min for API exp)
+    "laser_pulse_width": 500.0e-9,   # s, square pulse width (500 ns)
     "laser_absorbed_energy": 0.1e-3, # J  (0.1 mJ)
 
     # --- Material: Aluminum 6061-T6 ---
@@ -71,10 +71,12 @@ CONFIG = {
     "array_spacing": 2.0,        # mm
     "array_z_surface": "top",    # "top" or "bottom"
 
-    # --- Mesh (must resolve the laser spot: sigma_s = spot_radius/2 = 0.75 mm) ---
-    "mesh_fine_size": 0.3,       # mm, resolves 0.75mm Gaussian (~5 nodes across FWHM)
+    # --- Mesh (3-tier: spot << wave_region << outer) ---
+    "mesh_spot_size":   0.1,     # mm, ultra-fine at laser spot (resolves heat source)
+    "mesh_spot_radius": 2.0,     # mm, radius of spot-refinement region
+    "mesh_fine_size":   0.5,     # mm, wave propagation region
+    "mesh_fine_radius": 8.0,     # mm, radius of wave-refinement region
     "mesh_coarse_size": 2.0,     # mm, outer region
-    "mesh_coarse_radius": 8.0,   # mm, fine-mesh radius around source (smaller = fewer DOFs)
 
     # --- Study (shorter duration, fewer steps) ---
     "study_t_start": 0.0,        # s
@@ -94,13 +96,10 @@ def compute_derived(cfg):
     d = {}
     # Spatial sigma: 1/e² radius w0 -> sigma = w0/2
     d["sigma_s"] = cfg["laser_spot_radius"] / 2.0
-    # Temporal sigma: FWHM -> sigma = FWHM / (2*sqrt(2*ln2))
-    d["sigma_t"] = cfg["laser_pulse_FWHM"] / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-    # Peak heat flux  Q0 = E / ((2π)^(3/2) * σ_s² * σ_t)
-    sigma_s_m = d["sigma_s"] * 1e-3
-    d["Q0"] = cfg["laser_absorbed_energy"] / (
-        (2.0 * np.pi) ** 1.5 * sigma_s_m ** 2 * d["sigma_t"]
-    )
+    # For uniform square pulse on the spot area: Q0 = E / (π * w0^2 * tau)
+    w0_m = cfg["laser_spot_radius"] * 1e-3
+    tau = cfg["laser_pulse_width"]
+    d["Q0"] = cfg["laser_absorbed_energy"] / (np.pi * w0_m**2 * tau)  # W/m^2
     d["array_z"] = cfg["plate_Lz"] if cfg["array_z_surface"] == "top" else 0.0
     d["n_steps"] = int(
         (cfg["study_t_end"] - cfg["study_t_start"]) / cfg["study_t_step"]
@@ -163,13 +162,14 @@ def build_model(cfg, derived, array_points):
     param.set("x0",       f'{cfg["laser_x0"]} [mm]')
     param.set("y0",       f'{cfg["laser_y0"]} [mm]')
     param.set("sigma_s",  f'{derived["sigma_s"]} [mm]')
-    param.set("sigma_t",  f'{derived["sigma_t"]} [s]')
-    param.set("t0",       f'{cfg["laser_peak_time"]} [s]')
+    param.set("pw",       f'{cfg["laser_pulse_width"]} [s]')
     param.set("Q0",       f'{derived["Q0"]} [W/m^2]')
     param.set("T_amb",    f'{cfg["material_T0"]} [K]')
+    param.set("h_spot",   f'{cfg["mesh_spot_size"]} [mm]')
+    param.set("r_spot",   f'{cfg["mesh_spot_radius"]} [mm]')
     param.set("h_fine",   f'{cfg["mesh_fine_size"]} [mm]')
     param.set("h_coarse", f'{cfg["mesh_coarse_size"]} [mm]')
-    param.set("r_coarse", f'{cfg["mesh_coarse_radius"]} [mm]')
+    param.set("r_fine",   f'{cfg["mesh_fine_radius"]} [mm]')
     print("  OK")
 
     # ---- [3] Geometry: 3-D block ----
@@ -208,17 +208,17 @@ def build_model(cfg, derived, array_points):
     ht.label("Heat Transfer in Solids")
     ht.feature("init1").set("Tinit", "T_amb")
 
-    # Gaussian boundary heat source on top surface (z = Lz, boundary 6)
+    # Laser heat source on top surface (boundary 6)
+    # Use spatial Gaussian + temporal square pulse.
+    # sigma_s must be >= 5mm for the client API (exp underflow threshold D=5e-5).
     bhs = ht.feature().create("bhs1", "BoundaryHeatSource", 2)
     bhs.label("Laser Source (1064 nm)")
     bhs.selection().set(jpype.JArray(jpype.JInt, 1)([6]))
     bhs.set("Qb",
-        "Q0 * exp(-((x-x0)^2 + (y-y0)^2) / (2*sigma_s^2)) "
-        "* exp(-(t-t0)^2 / (2*sigma_t^2))"
+        "Q0 * exp(-((x-x0)^2+(y-y0)^2)/(2*sigma_s^2)) * (t > 0) * (t < pw)"
     )
-    print(f"  Laser: spot {cfg['laser_spot_radius']:.1f} mm, "
-          f"FWHM {cfg['laser_pulse_FWHM']*1e9:.0f} ns, "
-          f"Q0 = {derived['Q0']:.2e} W/m^2")
+    print(f"  Laser: spot {cfg['laser_spot_radius']:.1f} mm, pulse 0–{cfg['laser_pulse_width']*1e9:.0f} ns")
+    print(f"  Q0 = {derived['Q0']:.2e} W/m^2")
 
     # ---- [6] Physics: Solid Mechanics ----
     solid = comp.physics().create("solid", "SolidMechanics", "geom1")
@@ -234,56 +234,58 @@ def build_model(cfg, derived, array_points):
     except Exception:
         print("  (low-reflecting boundaries skipped -- free edges used)")
 
-    # ---- [7] Multiphysics: Thermal Expansion ----
+    # ---- [7] Thermal Expansion (via Linear Elastic Material sub-feature) ----
     print("\n[7/9] Thermal Expansion coupling ...")
-    te = comp.multiphysics().create("te1", "ThermalExpansion", "geom1")
-    te.label("Thermal Expansion")
-    te.set("Tref", "T_amb")
-    try:
-        tem = te.feature().create("tem1", "ThermalExpansionModel")
-        try:
-            tem.set("HeatTransferInterface", "ht")
-        except Exception:
-            pass
-        try:
-            tem.set("StructuralInterface", "solid")
-        except Exception:
-            pass
-    except Exception:
-        pass
-    try:
-        te.set("Temperature", "T")
-    except Exception:
-        pass
-    print("  ht.T  -->  solid.thermal_strain")
+    # NOTE: The multiphysics-level ThermalExpansion node does not correctly
+    # couple via the client API. Instead, add ThermalExpansion directly to
+    # the Linear Elastic Material node in Solid Mechanics.
+    lemm = solid.feature("lemm1")
+    tef = lemm.feature().create("tef1", "ThermalExpansion")
+    tef.set("Tref", "T_amb")
+    tef.set("alpha", f'{cfg["material_alpha"]} [1/K]')
+    print("  Thermal expansion: alpha = 23.6e-6 1/K, Tref = T_amb")
 
-    # ---- [8] Mesh ----
+    # ---- [8] Mesh (3-tier: spot < wave_region < outer) ----
     print("\n[8/9] Meshing ...")
     mesh = comp.mesh().create("mesh1")
     mesh.feature("size").set("hmax", "h_coarse")
     mesh.feature("size").set("hmin", "0.01 [mm]")
 
-    # Fine mesh in wave region (Ball selection around the source)
+    # Tier 1: ultra-fine at laser spot (captures narrow Gaussian heat source)
+    size_spot = mesh.feature().create("size_spot", "Size")
+    size_spot.label("Spot Refinement")
+    size_spot.set("hmax", "h_spot")
+    spot_sel = comp.selection().create("sel_spot", "Ball")
+    spot_sel.set("entitydim", "3")
+    spot_sel.set("posx", "x0")
+    spot_sel.set("posy", "y0")
+    spot_sel.set("posz", "Lz/2")
+    spot_sel.set("r", "r_spot")
+    size_spot.selection().named("sel_spot")
+
+    # Tier 2: fine in wave propagation region (resolves guided wavelengths)
     size_fine = mesh.feature().create("size_fine", "Size")
-    size_fine.label("Fine – Wave Region")
+    size_fine.label("Wave Region")
     size_fine.set("hmax", "h_fine")
     fine_sel = comp.selection().create("sel_wave_region", "Ball")
     fine_sel.set("entitydim", "3")
     fine_sel.set("posx", "x0")
     fine_sel.set("posy", "y0")
     fine_sel.set("posz", "Lz/2")
-    fine_sel.set("r", "r_coarse")
+    fine_sel.set("r", "r_fine")
     size_fine.selection().named("sel_wave_region")
 
     mesh.feature().create("ftet1", "FreeTet")
     mesh.run()
-    print(f"  Fine: {cfg['mesh_fine_size']} mm  |  Coarse: {cfg['mesh_coarse_size']} mm")
+    print(f"  Spot: {cfg['mesh_spot_size']} mm / Wave: {cfg['mesh_fine_size']} mm / Outer: {cfg['mesh_coarse_size']} mm")
 
     # ---- Save pre-solve backup ----
-    pymodel.save(cfg["model_filename"])
-    print(f"  Pre-solve model saved -> {cfg['model_filename']}")
+    import uuid
+    pre_solve_name = f"_pre_solve_{uuid.uuid4().hex[:8]}.mph"
+    pymodel.save(pre_solve_name)
+    print(f"  Pre-solve model saved -> {pre_solve_name}")
 
-    return client, pymodel, model
+    return client, pymodel, model, pre_solve_name
 
 
 # ===========================================================================
@@ -302,153 +304,74 @@ def setup_study(model_java, cfg, derived):
         f"range({cfg['study_t_start']}, {cfg['study_t_step']}, {cfg['study_t_end']})"
     )
     step.set("rtol", "1e-5")
-    step.set("plot", "on")           # convergence plots (GUI only)
-    step.set("probesel", "all")      # record all probes
+    step.set("plot", "on")            # convergence plots (GUI only)
+    step.set("probesel", "all")       # record all probes
     print(f"  {cfg['study_t_start']*1e6:.1f} – {cfg['study_t_end']*1e6:.1f} us, "
           f"dt={cfg['study_t_step']*1e9:.0f} ns, {derived['n_steps']} outputs")
 
 
-def _find_comsolbatch():
-    """Auto-detect comsolbatch.exe via mph.discovery (same mechanism mph uses)."""
-    try:
-        import mph.discovery
-        backend = mph.discovery.backend()
-        root = backend["root"]
-        # Platform-specific binary path
-        import platform
-        if platform.system() == "Windows":
-            batch = root / "bin" / "win64" / "comsolbatch.exe"
-        elif platform.system() == "Linux":
-            batch = root / "bin" / "glnxa64" / "comsolbatch"
-        else:  # macOS
-            batch = root / "bin" / "maci64" / "comsolbatch"
-        if batch.exists():
-            return batch
-    except Exception:
-        pass
-
-    # Fallback: try hardcoded paths for COMSOL 6.0–6.3
-    import platform
-    candidates = []
-    base = Path(r"C:\Program Files\COMSOL") if platform.system() == "Windows" else Path("/usr/local/comsol")
-    for ver in ["63", "62", "61", "60"]:
-        if platform.system() == "Windows":
-            candidates.append(base / f"COMSOL{ver}" / "Multiphysics" / "bin" / "win64" / "comsolbatch.exe")
-    for p in candidates:
-        if p.exists():
-            return p
-    return None
-
-
 def solve_model(pymodel, cfg, model_path, output_dir):
-    """Solve via comsolbatch for real-time progress, then reload into mph."""
-    # Ensure output directory exists
+    """Solve via mph (keeps solution data for extraction)."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    comsolbatch = _find_comsolbatch()
-    if comsolbatch is None:
-        # Fall back to mph solve (no progress)
-        print("\n[9/9] Solving via mph (comsolbatch not found) ...")
-        print("  No real-time progress available.")
-        try:
-            pymodel.solve()
-            return True
-        except Exception as e:
-            print(f"  Solver error: {e}")
-            return False
-
-    # Use absolute, resolved paths (no spaces/unicode issues)
-    input_path = str(Path(model_path).resolve())
-    solved_path = str(Path(output_dir).resolve() / "solved_model.mph")
-    log_path = str(Path(output_dir).resolve() / "solver_progress.log")
-
-    cmd = [
-        str(comsolbatch),
-        "-inputfile", input_path,
-        "-outputfile", solved_path,
-        "-batchlog", log_path,
-    ]
-
-    print(f"\n[9/9] Solving via comsolbatch (real-time progress) ...")
-    print(f"  Input:  {input_path}")
-    print(f"  Output: {solved_path}")
-    print(f"  Log:    {log_path}")
-    print(f"  Press Ctrl+C to abort (model will not be updated).")
-    print()
+    print(f"\n[9/9] Solving via mph ...")
+    print(f"  Press Ctrl+C to stop early (partial results will be saved).")
 
     t0 = _time.time()
-
     try:
-        # Run with stdout streaming so user sees progress in real time
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            encoding="utf-8",
-            errors="replace",
-        )
-        for line in proc.stdout:
-            print(f"  {line.rstrip()}")
-        proc.wait()
-
-        if proc.returncode != 0:
-            print(f"\n  comsolbatch exited with code {proc.returncode}")
-            return False
-
-        print(f"\n  Done in {_time.time() - t0:.0f} s")
-
-        # Reload the solved model into mph for data extraction
-        print("  Reloading solved model into mph ...")
-        try:
-            client = mph.start(cores=4)
-            solved = client.load(solved_path)
-            # Replace pymodel's internal Java handle with the solved model
-            pymodel._java = solved.java
-            return True
-        except Exception as e:
-            print(f"  Failed to reload solved model: {e}")
-            print(f"  You can open {solved_path} manually in COMSOL GUI.")
-            return False
-
-    except KeyboardInterrupt:
-        proc.terminate()
-        print("\n  Aborted by user.")
+        pymodel.solve()
+        print(f"  Done in {_time.time() - t0:.0f} s")
+        return True
+    except Exception as e:
+        print(f"  Solver error: {e}")
         return False
 
 
-def extract_via_cutpoints(model_java, array_points, derived):
-    """Extract time series using CutPoint3D datasets (probes unavailable in client API)."""
-    print("\n  Extracting data via CutPoint3D datasets ...")
+def extract_via_evaluate(pymodel, array_points, derived):
+    """Extract time series via mph evaluate + nearest-node lookup.
+
+    pymodel.evaluate('w', 'mm') returns (n_timesteps, n_nodes) for ALL mesh nodes.
+    We find the nodes nearest to each array point and extract their time series.
+    """
+    print("\n  Extracting data via mph.evaluate + nearest-node ...")
+
     n_steps = derived["n_steps"]
     n_pts = len(array_points)
     times = np.linspace(CONFIG["study_t_start"], CONFIG["study_t_end"], n_steps)
+
+    # Get coordinates at t=0 (undeformed mesh)
+    x0 = pymodel.evaluate("x", "mm")
+    y0 = pymodel.evaluate("y", "mm")
+    z0 = pymodel.evaluate("z", "mm")
+    # These are (n_timesteps, n_nodes) — take first timestep
+    coords = np.column_stack([
+        np.atleast_1d(np.squeeze(x0[0])),
+        np.atleast_1d(np.squeeze(y0[0])),
+        np.atleast_1d(np.squeeze(z0[0])),
+    ])
+    n_nodes = coords.shape[0]
+    print(f"  Mesh nodes: {n_nodes}")
+
+    # Evaluate w at all nodes and timesteps
+    w_all = pymodel.evaluate("w", "mm")  # (n_timesteps, n_nodes)
+    print(f"  w shape: {w_all.shape}")
+    if np.max(np.abs(w_all)) < 1e-12:
+        print("  WARNING: All displacements are zero. Check heat source.")
+        displacements = np.zeros((n_pts, n_steps))
+        return times, displacements, []
+
+    # For each array point, find nearest mesh node
     displacements = np.full((n_pts, n_steps), np.nan)
-
-    res = model_java.result()
-
+    found = 0
     for idx, pt in enumerate(array_points):
-        tag = f"cpt_{pt['i']}_{pt['j']}"
-        try:
-            cp = res.dataset().create(tag, "CutPoint3D")
-            cp.set("data", "dset1")
-            cp.set("pointx", str(pt["x"]))
-            cp.set("pointy", str(pt["y"]))
-            cp.set("pointz", str(pt["z"]))
-        except Exception:
-            continue
+        pt_coord = np.array([pt["x"], pt["y"], pt["z"]])
+        dists = np.linalg.norm(coords - pt_coord, axis=1)
+        nearest = np.argmin(dists)
+        if dists[nearest] < 1.0:  # within 1mm
+            displacements[idx, :] = w_all[:, nearest]
+            found += 1
 
-        # Evaluate at each stored timestep
-        for ti in range(n_steps):
-            try:
-                val = res.numerical(tag, "w", "mm")
-                displacements[idx, ti] = float(val)
-            except Exception:
-                pass  # keep NaN
-
-    n_ok = int(np.sum(~np.all(np.isnan(displacements), axis=1)))
-    print(f"  {n_ok}/{n_pts} points extracted")
+    print(f"  {found}/{n_pts} points matched to mesh nodes")
     return times, displacements, []
 
 
@@ -547,11 +470,11 @@ def main(args=None):
     print(f"\n  {'-'*56}")
     print(f"  Plate:     {cfg['plate_Lx']} x {cfg['plate_Ly']} x {cfg['plate_Lz']} mm")
     print(f"  Laser:     spot {cfg['laser_spot_radius']:.1f} mm, "
-          f"{cfg['laser_pulse_FWHM']*1e9:.0f} ns FWHM, "
+          f"{cfg['laser_pulse_width']*1e9:.0f} ns pulse, "
           f"Q0 = {derived['Q0']:.2e} W/m^2")
     print(f"  Array:     {cfg['array_N']}x{cfg['array_N']} ({len(array_points)} pts), "
           f"{cfg['array_spacing']} mm spacing")
-    print(f"  Mesh:      fine {cfg['mesh_fine_size']} mm / coarse {cfg['mesh_coarse_size']} mm")
+    print(f"  Mesh:      spot {cfg['mesh_spot_size']} mm / wave {cfg['mesh_fine_size']} mm / outer {cfg['mesh_coarse_size']} mm")
     print(f"  Study:     {cfg['study_t_start']*1e6:.0f}–{cfg['study_t_end']*1e6:.0f} us, "
           f"dt = {cfg['study_t_step']*1e9:.0f} ns ({derived['n_steps']} outputs)")
     if parsed.build_only:
@@ -559,38 +482,44 @@ def main(args=None):
     print(f"  {'-'*56}")
 
     # ---- Build ----
-    client, pymodel, java_model = build_model(cfg, derived, array_points)
+    client, pymodel, java_model, pre_solve_name = build_model(cfg, derived, array_points)
     setup_study(java_model, cfg, derived)
 
-    # Save fully-built model
-    pymodel.save(cfg["model_filename"])
-    print(f"\n  Model (ready to solve) saved -> {cfg['model_filename']}")
+    # Save a copy with the configured name (for the user)
+    try:
+        pymodel.save(cfg["model_filename"])
+        print(f"  Copy saved -> {cfg['model_filename']}")
+    except Exception:
+        print(f"  (could not save {cfg['model_filename']} — use {pre_solve_name} instead)")
 
     # ---- Stop here if --build-only ----
     if parsed.build_only:
         print(f"\n{'='*62}")
         print(f"  Build-only mode: stopping before solve.")
-        print(f"  Inspect '{cfg['model_filename']}' in the COMSOL GUI,")
+        print(f"  Inspect '{pre_solve_name}' in the COMSOL GUI,")
         print(f"  then re-run without --build-only to solve and export.")
         print(f"{'='*62}\n")
         return 0
 
     # ---- Solve ----
     output_dir = Path(cfg["output_dir"])
-    ok = solve_model(pymodel, cfg, cfg["model_filename"], str(output_dir))
+    ok = solve_model(pymodel, cfg, pre_solve_name, str(output_dir))
     if not ok:
         return 1
 
-    # Reload java handle (comsolbatch path swaps the internal model)
-    java_model = pymodel.java
-
     # ---- Extract & export ----
-    times, displacements, _missing = extract_via_cutpoints(
-        java_model, array_points, derived
+    times, displacements, _missing = extract_via_evaluate(
+        pymodel, array_points, derived
     )
     export_results(times, displacements, array_points, cfg, derived, output_dir)
 
-    # Solved model already saved by comsolbatch → output/solved_model.mph
+    # Save solved model
+    solved_path = output_dir / "solved_model.mph"
+    try:
+        pymodel.save(str(solved_path))
+        print(f"  Solved model saved -> {solved_path}")
+    except Exception:
+        pass
 
     # ---- Summary ----
     valid = int(np.sum(~np.all(np.isnan(displacements), axis=1)))

@@ -151,6 +151,64 @@ Format: symptom → root cause → solution.
 
 ---
 
+## Entry 9 — 2026-05-12: `exp()` underflow causes expression to evaluate to 0 globally
+- **COMSOL**: 6.2, **mph**: 1.3.1, **OS**: Windows 11
+
+### Gaussian heat source `Q0 * exp(-r²/(2*sigma_s²))` → zero heating
+- **Root cause**: COMSOL client API evaluates `exp(-large_argument)` at all boundary
+  nodes. When `exp()` underflows to exactly 0 at far corners (e.g. r_max²/D > ~40),
+  COMSOL sets the ENTIRE expression to 0 globally, not just at those nodes.
+- **Verification**: Binary search found the threshold at denominator D ≈ 1e-5.
+  `exp(-r²/0.1)` works (D=0.1 > 1e-5). `exp(-r²/1e-5)` fails (D=1e-5).
+  For a 20mm plate corner (r=14mm), need D > r²/40 ≈ 5e-5.
+- **Solution**: Use `sigma_s ≥ 5mm` (D = 2*sigma_s² ≥ 5e-5). This ensures
+  exp argument < 40 everywhere → no underflow → expression evaluates correctly.
+  Alternatively, use a polynomial cap `1 - r²/(2*sigma_s²)` without clamping.
+- **Note**: `max()`, `min()`, `if()`, and spatial comparisons like
+  `((x-x0)² < 2*sigma_s²)` ALSO fail via the client API (evaluate to 0),
+  making it impossible to clamp spatial expressions.
+
+## Entry 10 — 2026-05-12: ThermalExpansion coupling not working
+- **COMSOL**: 6.2, **mph**: 1.3.1
+
+### `comp.multiphysics().create("te1","ThermalExpansion")` → no displacement
+- **Root cause**: The `ThermalExpansionModel` sub-feature cannot be created via
+  the client API (`Unknown feature ID`). Without it, the coupling between
+  HeatTransfer and SolidMechanics is inactive.
+- **Solution**: Add `ThermalExpansion` as a sub-feature of the **Linear Elastic
+  Material** node instead:
+  ```python
+  lemm = solid.feature("lemm1")
+  tef = lemm.feature().create("tef1", "ThermalExpansion")
+  tef.set("Tref", "T_amb")
+  tef.set("alpha", "23.6e-6 [1/K]")
+  ```
+  This applies thermal expansion directly within the constitutive law, bypassing
+  the multiphysics coupling node entirely.
+
+## Entry 11 — 2026-05-12: CutPoint3D + res.numerical() not working
+- **COMSOL**: 6.2, **mph**: 1.3.1
+
+### `res.numerical("cpt","w","mm")` → TypeError (no matching overloads)
+- **Root cause**: `ResultsClient.numerical()` only accepts 0 or 1 string argument
+  (the tag of a NumericalFeature), not expression/unit arguments.
+- **Solution**: Use `pymodel.evaluate("w","mm")` which returns a
+  (n_timesteps, n_nodes) NumPy array. Find nearest mesh nodes to target
+  coordinates using `pymodel.evaluate("x","mm")` at t=0, then extract
+  time series from those node indices.
+
+## Entry 12 — 2026-05-12: File lock on model save
+- **COMSOL**: 6.2, **mph**: 1.3.1
+
+### `pymodel.save("name.mph")` → File locked by another model
+- **Root cause**: mph client caches file associations. Saving to a filename
+  previously used in the same session fails.
+- **Solution**: Save pre-solve backups with a unique name (UUID suffix):
+  `f"_pre_solve_{uuid.uuid4().hex[:8]}.mph"`. The final solved model can
+  be saved via the unique path returned by comsolbatch or mph.
+
+---
+
 ## Template for new entries
 
 ```markdown

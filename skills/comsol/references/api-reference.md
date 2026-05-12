@@ -25,9 +25,17 @@ Verified against COMSOL 6.2 + mph 1.3.1. Tags are case-sensitive.
 
 | Coupling | Tag (`comp.multiphysics().create(tag, type, geom)`) | Verified |
 |---|---|---|
-| Thermal Expansion | `"ThermalExpansion"` | 6.2 |
+| Thermal Expansion | `"ThermalExpansion"` | 6.2 (multiphysics node NOT configurable — use lemm1 sub-feature) |
 | Thermal Stress | `"ThermalStress"` | 6.2 |
 | Acoustic-Structure Boundary | `"AcousticStructureBoundary"` | not tested |
+
+**Thermal Expansion — correct approach:**
+```python
+lemm = solid.feature("lemm1")                           # Linear Elastic Material
+tef = lemm.feature().create("tef1", "ThermalExpansion")  # sub-feature, NOT multiphysics
+tef.set("Tref", "T_amb")
+tef.set("alpha", "23.6e-6 [1/K]")
+```
 
 ## Material types
 
@@ -147,3 +155,29 @@ The `model.java` object is a `com.comsol.clientapi.impl.ModelClient`. Key method
 
 Always include units in brackets: `"40 [mm]"`, `"69e9 [Pa]"`, `"293.15 [K]"`.
 The default length unit is mm, default temperature unit is K.
+
+## Client API limitations (verified against COMSOL 6.2)
+
+### Functions that evaluate to 0 via the client API
+
+| Expression | Works? | Note |
+|---|---|---|
+| `exp(-r²/D)` with D > 5e-5 | YES | exp argument < 40 everywhere |
+| `exp(-r²/D)` with D ≤ 1e-5 | NO | Underflow at far nodes → global zero |
+| `max(a, b)` on boundary | NO | Evaluates to 0 |
+| `min(a, b)` on boundary | NO | Evaluates to 0 |
+| `if(cond, a, b)` on boundary | NO | Evaluates to 0 |
+| `(x > val1) * (x < val2)` on boundary | NO | Spatial comparisons → 0 |
+| `(t > val1) * (t < val2)` | YES | Temporal comparisons work |
+
+### Nodes/features that throw "Operation cannot be created"
+
+- `DomainPointProbe` — use `pymodel.evaluate()` + nearest-node instead
+- `SolverLog` — unavailable; use COMSOL Desktop for progress monitoring
+- `ThermalExpansionModel` (sub-feature of multiphysics node) — use `lemm1` sub-feature instead
+
+### Other limitations
+
+- `res.numerical()` only accepts 0–1 string arguments (the tag of a NumericalFeature)
+- `pymodel.save()` fails if filename was used earlier in the same session — use UUID suffix
+- `comsolbatch` does not save solution datasets to the output .mph

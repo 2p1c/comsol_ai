@@ -29,3 +29,4 @@ package-lock.json
 Thumbs.db
 .DS_Store
 CLAUDE.md
+_pre_solve_*.mph
