@@ -55,7 +55,7 @@ CONFIG = {
     "laser_y0": 10.0,                # mm
     "laser_spot_radius": 10.0,       # mm, 1/e^2 radius (sigma=5mm, min for API exp)
     "laser_pulse_width": 500.0e-9,   # s, square pulse width (500 ns)
-    "laser_absorbed_energy": 0.1e-3, # J  (0.1 mJ)
+    "laser_absorbed_energy": 10e-3,  # J  (10 mJ — boosted 100x for visible displacement with wide spot)
 
     # --- Material: Aluminum 6061-T6 ---
     "material_E":      69e9,       # Pa

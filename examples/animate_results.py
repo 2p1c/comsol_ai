@@ -30,14 +30,12 @@ def load_surface_field(model, timesteps=None):
     n_steps, n_nodes = w.shape
     print(f"  Field shape: {n_steps} timesteps x {n_nodes} nodes")
 
-    # Find top-surface nodes (z ≈ max_z)
-    z_max = np.max(z)
-    surface_mask = np.abs(z - z_max) < 1e-4
-    n_surface = np.sum(surface_mask)
+    # Use z at t=0 (undeformed mesh) to find top-surface nodes
+    z0 = z[0]  # (n_nodes,) — undeformed z-coordinates
+    z_max = np.max(z0)
+    mask = np.abs(z0 - z_max) < 1e-4
+    n_surface = np.sum(mask)
     print(f"  Surface nodes: {n_surface}")
-
-    # Use the mask from the first timestep (undeformed mesh)
-    mask = np.abs(z[0] - z_max) < 1e-4
 
     # Extract surface coordinates and displacement
     xs = x[0, mask]
@@ -115,12 +113,18 @@ def make_animation(xs, ys, ws, n_steps, output_path, times_s, fps=15):
         fig, update, frames=n_frames, interval=1000 / fps, blit=True
     )
 
-    # Save as MP4
-    writer = animation.FFMpegWriter(fps=fps, bitrate=2000)
-    ani.save(str(output_path), writer=writer)
+    # Save — try MP4 first, fall back to GIF
+    try:
+        writer = animation.FFMpegWriter(fps=fps, bitrate=2000)
+        out_path = Path(str(output_path).replace(".mp4", "") + ".mp4")
+        ani.save(str(out_path), writer=writer)
+    except (FileNotFoundError, OSError):
+        print("  ffmpeg not found, saving as GIF instead ...")
+        out_path = Path(str(output_path).replace(".mp4", "") + ".gif")
+        ani.save(str(out_path), writer="pillow", fps=fps)
     plt.close(fig)
 
-    print(f"  Animation saved -> {output_path}")
+    print(f"  Animation saved -> {out_path}")
 
 
 def main():
@@ -160,8 +164,9 @@ def main():
 
     xs, ys, ws, n_steps = load_surface_field(model)
 
-    # Get time array (approximate from model)
-    times = np.linspace(0, 5e-6, n_steps)  # default 5us
+    # Time array: evaluate t at first node (same for all nodes)
+    t_raw = model.evaluate("t", "s")
+    times = t_raw if t_raw.ndim == 1 else t_raw[:, 0]
 
     make_animation(xs, ys, ws, n_steps, output_path, times, fps=args.fps)
 
